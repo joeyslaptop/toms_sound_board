@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thomas's Sound Board</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; height: 100vh; display: flex; justify-content: center; align-items: center; background: #111; }
+
+    /* Outer frame so we can add a header */
+    .frame {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 18px;
+      border-radius: 22px;
+      background: linear-gradient(145deg, #3a3a3a, #1f1f1f);
+      box-shadow: inset 0 0 30px rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.7);
+    }
+
+    .titlebar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 16px 24px;
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(255,255,255,0.10), rgba(0,0,0,0.30));
+      box-shadow:
+        inset 0 2px 2px rgba(255,255,255,0.35),
+        inset 0 -3px 6px rgba(0,0,0,0.55),
+        0 2px 6px rgba(0,0,0,0.6);
+    }
+
+    .title {
+      font-size: 30px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      color: rgba(200,200,200,0.95);
+      text-shadow: 0 1px 1px rgba(0,0,0,0.6);
+    }
+
+    /* Main chassis */
+    .soundboard {
+      display: flex;
+      gap: 24px;
+      padding: 18px;
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(0,0,0,0.18));
+      box-shadow: inset 0 0 18px rgba(0,0,0,0.45);
+    }
+
+    /* Left control panel */
+    .panel {
+      width: 230px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .panel-top {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+    }
+
+    .top-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .mid-controls {
+      margin-top: auto;
+      margin-bottom: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel-bottom {
+      display: flex;
+      justify-content: center;
+    }
+
+    .panel-footer {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .panel-button {
+      height: 48px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #d0d0d0, #9c9c9c);
+      border: none;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.6), inset 0 -2px 3px rgba(0,0,0,0.4);
+    }
+
+    .panel-button:active { filter: brightness(0.85); }
+
+    .panel-button.small {
+      height: 34px;
+      font-size: 12px;
+      padding: 0 10px;
+      flex: 1;
+    }
+
+    .panel-button.danger {
+      background: linear-gradient(145deg, #b55, #822);
+      color: #fff;
+    }
+
+    /* Random roll row */
+    .random-row { display: flex; align-items: center; gap: 8px; }
+    .number-input {
+      width: 56px; height: 36px; border-radius: 6px; border: none; text-align: center; font-weight: 700;
+      background: #222; color: #0f0; box-shadow: inset 0 0 6px rgba(0,0,0,0.8);
+    }
+
+    .display {
+      margin-top: 12px;
+      height: 48px;
+      border-radius: 6px;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Courier New", monospace;
+      font-size: 28px;
+      color: #39ff14;
+      box-shadow: inset 0 0 10px rgba(57,255,20,0.6), 0 0 10px rgba(0,0,0,0.8);
+    }
+
+    /* Pads grid (6 columns x 5 rows = 30 pads) */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(6, 70px);
+      grid-template-rows: repeat(5, 70px);
+      gap: 14px;
+    }
+
+    .pad {
+      position: relative;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      box-shadow: inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5), 0 4px 8px rgba(0,0,0,0.6);
+    }
+
+    .pad:active {
+      filter: brightness(1.35);
+      box-shadow: 0 0 18px currentColor, inset 0 0 12px rgba(255,255,255,0.8);
+    }
+
+    .pad-label {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      opacity: 0.9;
+      pointer-events: none;
+      text-align: center;
+      line-height: 1.1;
+      max-width: 62px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Row colors */
+    .r1 { background: #b22222; }
+    .r2 { background: #d2691e; }
+    .r3 { background: #e6c200; }
+    .r4 { background: #228b22; }
+    .r5 { background: #1e5fd8; }
+
+    /* Label colors: same hue, darker */
+    .r1 .pad-label { color: #6b1010; }
+    .r2 .pad-label { color: #7a3a10; }
+    .r3 .pad-label { color: #6f5d00; }
+    .r4 .pad-label { color: #0f4b0f; }
+    .r5 .pad-label { color: #123b86; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <div class="titlebar"><div class="title">Thomas's Sound Board</div></div>
+
+    <div class="soundboard">
+      <!-- LEFT PANEL -->
+      <div class="panel">
+        <div class="panel-top">
+          <div class="top-buttons">
+            <button id="recordBtn" class="panel-button">Record Sound</button>
+            <button id="loadBtn" class="panel-button">Load Sound</button>
+          </div>
+
+          <div class="mid-controls">
+            <div class="random-row">
+              <input id="minVal" class="number-input" type="number" value="1" />
+              <button id="rollBtn" class="panel-button" style="flex:1; height:36px;">Random Roll</button>
+              <input id="maxVal" class="number-input" type="number" value="20" />
+            </div>
+            <div id="display" class="display">00</div>
+          </div>
+        </div>
+
+        <div class="panel-bottom">
+          <div class="panel-footer">
+            <button id="infoBtn" class="panel-button small">Info</button>
+            <button id="clearBoardBtn" class="panel-button small danger">Clear Board</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6x5 SOUND GRID -->
+      <div class="grid" aria-label="Sound pads"></div>
+    </div>
+  </div>
+
+  <script>
+    const PAD_COUNT = 30; // 6 columns x 5 rows
+
+    const grid = document.querySelector('.grid');
+    const sounds = new Array(PAD_COUNT).fill(null);
+    const padButtons = [];
+    let selectedPad = null;
+
+    function clearSelectionVisual() {
+      padButtons.forEach((b) => (b.style.boxShadow = ''));
+      selectedPad = null;
+    }
+
+    function shortSoundName(filename) {
+      if (!filename) return '';
+      const base = filename.replace(/\.[^/.]+$/, '');
+      return base.slice(0, 10);
+    }
+
+    function setPadLabel(padIndex, filename) {
+      const el = padButtons[padIndex]?.querySelector('.pad-label');
+      if (!el) return;
+      el.textContent = shortSoundName(filename);
+    }
+
+    // -----------------------------
+    // IndexedDB helpers (Option A)
+    // -----------------------------
+    const DB_NAME = 'dd-soundboard';
+    const DB_VERSION = 1;
+    const STORE = 'pads';
+
+    function openDb() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function idbSet(key, blob) {
+      const db = await openDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(blob, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function idbGet(key) {
+      const db = await openDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function idbDelete(key) {
+      const db = await openDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function idbClear() {
+      const db = await openDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function loadIndexedDbSounds() {
+      for (let i = 0; i < PAD_COUNT; i++) {
+        const blob = await idbGet(`pad-${i}`);
+        if (!blob) continue;
+        const url = URL.createObjectURL(blob);
+        sounds[i] = new Audio(url);
+        padButtons[i].style.outline = '2px solid rgba(255,255,255,0.18)';
+        setPadLabel(i, blob?.name || '');
+      }
+    }
+
+    // -----------------------------
+    // Build pads
+    // -----------------------------
+    for (let i = 0; i < PAD_COUNT; i++) {
+      const pad = document.createElement('button');
+      pad.className = `pad r${Math.floor(i / 6) + 1}`;
+      pad.setAttribute('aria-label', `Pad ${i + 1}`);
+      pad.innerHTML = '<span class="pad-label"></span>';
+
+      pad.addEventListener('click', () => {
+        if (sounds[i]) {
+          sounds[i].currentTime = 0;
+          sounds[i].play();
+        }
+      });
+
+      // Right-click selects pad; if assigned, confirm removal first
+      pad.addEventListener('contextmenu', async (e) => {
+        e.preventDefault();
+
+        if (sounds[i]) {
+          const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
+          if (!ok) return;
+
+          sounds[i] = null;
+          await idbDelete(`pad-${i}`);
+          padButtons[i].style.outline = '';
+          setPadLabel(i, '');
+        }
+
+        selectedPad = i;
+        padButtons.forEach((b) => (b.style.boxShadow = ''));
+        pad.style.boxShadow = '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+      });
+
+      grid.appendChild(pad);
+      padButtons.push(pad);
+    }
+
+    // -----------------------------
+    // Load Sound
+    // -----------------------------
+    document.getElementById('loadBtn').addEventListener('click', () => {
+      if (selectedPad === null) {
+        alert('Right-click a pad to select it first');
+        return;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'audio/*';
+      input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
+
+        try {
+          await idbSet(`pad-${selectedPad}`, file);
+          const url = URL.createObjectURL(file);
+          sounds[selectedPad] = new Audio(url);
+          padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
+          setPadLabel(selectedPad, file.name);
+          clearSelectionVisual();
+        } catch (err) {
+          alert(`Sound load failed: ${err.message || err}`);
+        }
+      };
+      input.click();
+    });
+
+    // -----------------------------
+    // Random Roll
+    // -----------------------------
+    document.getElementById('rollBtn').addEventListener('click', () => {
+      const min = parseInt(document.getElementById('minVal').value);
+      const max = parseInt(document.getElementById('maxVal').value);
+      if (isNaN(min) || isNaN(max) || min > max) return;
+      const roll = Math.floor(Math.random() * (max - min + 1)) + min;
+      document.getElementById('display').textContent = roll.toString().padStart(2, '0');
+    });
+
+    // -----------------------------
+    // Record Sound (MediaRecorder)
+    // -----------------------------
+    let mediaRecorder = null;
+    let recordChunks = [];
+    let isRecording = false;
+    let recordStopTimer = null;
+
+    document.getElementById('recordBtn').addEventListener('click', async () => {
+      if (selectedPad === null) {
+        alert('Right-click a pad to select it first');
+        return;
+      }
+
+      const recordBtn = document.getElementById('recordBtn');
+
+      try {
+        // If currently recording, stop and save
+        if (isRecording && mediaRecorder) {
+          mediaRecorder.stop();
+          return;
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        const candidates = [
+          'audio/webm;codecs=opus',
+          'audio/webm',
+          'audio/ogg;codecs=opus',
+          'audio/mp4'
+        ];
+        const mimeType = candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+
+        mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        recordChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) recordChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+          try {
+            stream.getTracks().forEach(t => t.stop());
+
+            if (recordStopTimer) {
+              clearTimeout(recordStopTimer);
+              recordStopTimer = null;
+            }
+
+            const blob = new Blob(recordChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+
+            const defaultName = `pad_${selectedPad + 1}`;
+            const userName = (prompt('Name this recording (up to 10 characters):', defaultName) || defaultName)
+              .trim()
+              .slice(0, 10) || defaultName;
+
+            const ext =
+              (blob.type.includes('ogg') && 'ogg') ||
+              (blob.type.includes('mp4') && 'm4a') ||
+              'webm';
+
+            const filename = `${userName}.${ext}`;
+            const file = new File([blob], filename, { type: blob.type });
+
+            await idbSet(`pad-${selectedPad}`, file);
+
+            const url = URL.createObjectURL(file);
+            sounds[selectedPad] = new Audio(url);
+
+            padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
+            setPadLabel(selectedPad, file.name);
+
+            clearSelectionVisual();
+          } catch (err) {
+            alert(`Recording save failed: ${err.message || err}`);
+          } finally {
+            isRecording = false;
+            recordBtn.textContent = 'Record Sound';
+            recordBtn.style.background = recordBtn.dataset.prevBackground || '';
+            recordBtn.style.color = '';
+            recordBtn.style.filter = '';
+          }
+        };
+
+        isRecording = true;
+        recordBtn.textContent = 'Stop Recording';
+        recordBtn.dataset.prevBackground = recordBtn.style.background || '';
+        recordBtn.style.background = 'linear-gradient(145deg, #b22222, #7a0f0f)';
+        recordBtn.style.color = '#fff';
+
+        recordStopTimer = setTimeout(() => {
+          if (isRecording && mediaRecorder?.state === 'recording') {
+            mediaRecorder.stop();
+          }
+        }, 15000);
+
+        mediaRecorder.start();
+      } catch (err) {
+        if (recordStopTimer) {
+          clearTimeout(recordStopTimer);
+          recordStopTimer = null;
+        }
+        isRecording = false;
+        alert(
+          err?.name === 'NotAllowedError'
+            ? 'Microphone permission was denied.'
+            : `Could not start recording: ${err.message || err}`
+        );
+      }
+    });
+
+    // Info
+    document.getElementById('infoBtn').addEventListener('click', () => {
+      window.open('Assets/info.html', '_blank');
+    });
+
+    // Clear Board
+    document.getElementById('clearBoardBtn').addEventListener('click', async () => {
+      const ok = confirm('Continuing this will remove all sounds from cache.  Continue?');
+      if (!ok) return;
+
+      await idbClear();
+      sounds.fill(null);
+      padButtons.forEach((b) => {
+        b.style.outline = '';
+        b.style.boxShadow = '';
+        const lbl = b.querySelector('.pad-label');
+        if (lbl) lbl.textContent = '';
+      });
+      selectedPad = null;
+    });
+
+    // Boot
+    (async () => {
+      try {
+        // Ask browser to keep IndexedDB storage persistent (Safari-friendly)
+        if (navigator.storage && navigator.storage.persist) {
+          try { await navigator.storage.persist(); } catch (_) {}
+        }
+
+        await loadIndexedDbSounds();
+      } catch (e) {
+        console.warn('Could not load IndexedDB sounds:', e);
+      }
+    })();
+  </script>
+</body>
+</html>
