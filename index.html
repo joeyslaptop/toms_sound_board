@@ -377,6 +377,29 @@
         pad.style.boxShadow = '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
       }
 
+      // Double-tap to select (mobile/iPad backup)
+      let lastTapTime = 0;
+      
+      pad.addEventListener('touchend', (e) => {
+        // Only treat it as a tap if we didn't long-press
+        // (Assumes you already have longPressFired from the long-press logic.)
+        if (typeof longPressFired !== 'undefined' && longPressFired) return;
+      
+        const now = Date.now();
+        const dt = now - lastTapTime;
+      
+        // If the second tap happens quickly enough, count it as a double-tap
+        if (dt > 0 && dt < 350) {
+          if (e.cancelable) e.preventDefault();
+          selectPadForAssign(e);
+          lastTapTime = 0; // reset
+          return;
+        }
+      
+        lastTapTime = now;
+      }, { passive: false });
+
+      
       // Desktop: right-click selects
       pad.addEventListener('contextmenu', selectPadForAssign);
 
