@@ -464,7 +464,6 @@
     let recordChunks = [];
     let isRecording = false;
     let recordStopTimer = null;
-    let micStream = null;
 
     document.getElementById('recordBtn').addEventListener('click', async () => {
       if (selectedPad === null) {
@@ -481,17 +480,7 @@
           return;
         }
 
-        // Reuse the same mic stream so Safari doesn't prompt every time
-        if (!micStream) {
-          micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
-            }
-          });
-        }
-        const stream = micStream;
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
         const candidates = [
           'audio/webm;codecs=opus',
@@ -510,7 +499,7 @@
 
         mediaRecorder.onstop = async () => {
           try {
-            //stream.getTracks().forEach(t => t.stop());
+            stream.getTracks().forEach(t => t.stop());
 
             if (recordStopTimer) {
               clearTimeout(recordStopTimer);
@@ -612,13 +601,6 @@
         console.warn('Could not load IndexedDB sounds:', e);
       }
     })();
-
-    window.addEventListener('pagehide', () => {
-  try {
-    micStream?.getTracks()?.forEach(t => t.stop());
-  } catch (_) {}
-  micStream = null;
-});
   </script>
 </body>
 </html>
