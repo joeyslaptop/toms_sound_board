@@ -342,75 +342,78 @@
     }
 
 // -----------------------------
-// Build pads (desktop + iPad Air 2 safe)
+// Build pads (delegated events for iPad Air 2 reliability)
 // -----------------------------
 for (let i = 0; i < PAD_COUNT; i++) {
   const pad = document.createElement('button');
+  pad.type = 'button';
   pad.className = `pad r${Math.floor(i / 6) + 1}`;
   pad.setAttribute('aria-label', `Pad ${i + 1}`);
+  pad.dataset.idx = String(i);
   pad.innerHTML = '<span class="pad-label"></span>';
-
-  function playPad() {
-    if (sounds[i]) {
-      sounds[i].currentTime = 0;
-      sounds[i].play();
-    }
-  }
-
-  async function selectPadForAssign(e) {
-    if (e && e.preventDefault) e.preventDefault();
-
-    if (sounds[i]) {
-      const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
-      if (!ok) return;
-
-      sounds[i] = null;
-      await idbDelete(`pad-${i}`);
-      padButtons[i].style.outline = '';
-      setPadLabel(i, '');
-    }
-
-    selectedPad = i;
-    padButtons.forEach((b) => (b.style.boxShadow = ''));
-    pad.style.boxShadow =
-      '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
-
-    // If Load/Record asked for selection, continue automatically
-    if (selectMode) {
-      const mode = selectMode;
-      selectMode = null;
-      if (mode === 'load') document.getElementById('loadBtn').click();
-      if (mode === 'record') document.getElementById('recordBtn').click();
-    }
-  }
-
-  // Desktop click (Mac/PC) – safe
-  pad.addEventListener('click', async (e) => {
-    if (selectMode) {
-      await selectPadForAssign(e);
-      return;
-    }
-    playPad();
-  });
-
-  // Desktop right-click selects
-  pad.addEventListener('contextmenu', selectPadForAssign);
-
-  // iPad/iPhone tap handler (THIS is the key for iPad Air 2)
-  pad.addEventListener('touchend', async (e) => {
-    // Prevent iOS from doing its own gesture stuff and ensure our handler runs
-    e.preventDefault();
-
-    if (selectMode) {
-      await selectPadForAssign(e);
-      return;
-    }
-    playPad();
-  }, { passive: false });
 
   grid.appendChild(pad);
   padButtons.push(pad);
 }
+let selectMode = null; // null | 'load' | 'record' (if you haven't added it yet)
+
+async function selectPadByIndex(i) {
+  if (sounds[i]) {
+    const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
+    if (!ok) return false;
+
+    sounds[i] = null;
+    await idbDelete(`pad-${i}`);
+    padButtons[i].style.outline = '';
+    setPadLabel(i, '');
+  }
+
+  selectedPad = i;
+  padButtons.forEach((b) => (b.style.boxShadow = ''));
+  padButtons[i].style.boxShadow =
+    '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+
+  // Continue action if we were waiting for a pad tap (primary iPad workflow)
+  if (selectMode) {
+    const mode = selectMode;
+    selectMode = null;
+    if (mode === 'load') document.getElementById('loadBtn').click();
+    if (mode === 'record') document.getElementById('recordBtn').click();
+  }
+  return true;
+}
+
+function playPadByIndex(i) {
+  if (sounds[i]) {
+    sounds[i].currentTime = 0;
+    sounds[i].play();
+  }
+}
+
+// Delegated handler: works better on older iPads than per-button listeners
+async function handlePadActivate(e) {
+  const pad = e.target.closest('.pad');
+  if (!pad) return;
+
+  // iPad Safari sometimes needs this to stop weird selection behavior
+  if (e.cancelable) e.preventDefault();
+
+  const i = parseInt(pad.dataset.idx, 10);
+  if (Number.isNaN(i)) return;
+
+  if (selectMode) {
+    await selectPadByIndex(i);
+    return;
+  }
+
+  playPadByIndex(i);
+}
+
+// Use multiple event types; whichever the iPad delivers will work
+grid.addEventListener('click', handlePadActivate, true);
+grid.addEventListener('touchend', handlePadActivate, { capture: true, passive: false });
+grid.addEventListener('pointerup', handlePadActivate, { capture: true, passive: false });
+    
     // -----------------------------
     // Load Sound
     // -----------------------------
