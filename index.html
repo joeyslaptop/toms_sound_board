@@ -5,8 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Thomas's Sound Board</title>
   <style>
-    * { box-sizing: border-box; user-select: none; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { margin: 0; height: 100vh; display: flex; justify-content: center; align-items: center; background: #111; }
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #111;
+      -webkit-touch-callout: none;
+    }
 
     /* Outer frame so we can add a header */
     .frame {
@@ -151,6 +165,10 @@
       border: none;
       cursor: pointer;
       box-shadow: inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5), 0 4px 8px rgba(0,0,0,0.6);
+    
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
     }
 
     .pad:active {
@@ -322,21 +340,92 @@
       }
     }
 
-    // -----------------------------
-    // Build pads
-    // -----------------------------
-    for (let i = 0; i < PAD_COUNT; i++) {
-      const pad = document.createElement('button');
-      pad.className = `pad r${Math.floor(i / 6) + 1}`;
-      pad.setAttribute('aria-label', `Pad ${i + 1}`);
-      pad.innerHTML = '<span class="pad-label"></span>';
+// -----------------------------
+// Build pads (desktop + iOS friendly)
+// -----------------------------
+for (let i = 0; i < PAD_COUNT; i++) {
+  const pad = document.createElement('button');
+  pad.className = `pad r${Math.floor(i / 6) + 1}`;
+  pad.setAttribute('aria-label', `Pad ${i + 1}`);
+  pad.innerHTML = '<span class="pad-label"></span>';
 
-      pad.addEventListener('click', () => {
-        if (sounds[i]) {
-          sounds[i].currentTime = 0;
-          sounds[i].play();
-        }
-      });
+  function playPad() {
+    if (sounds[i]) {
+      sounds[i].currentTime = 0;
+      sounds[i].play();
+    }
+  }
+
+  // Click (desktop) plays
+  pad.addEventListener('click', playPad);
+
+  // Select pad for assignment (desktop right-click / mobile long-press)
+  async function selectPadForAssign(e) {
+    if (e) e.preventDefault();
+
+    if (sounds[i]) {
+      const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
+      if (!ok) return;
+
+      sounds[i] = null;
+      await idbDelete(`pad-${i}`);
+      padButtons[i].style.outline = '';
+      setPadLabel(i, '');
+    }
+
+    selectedPad = i;
+    padButtons.forEach((b) => (b.style.boxShadow = ''));
+    pad.style.boxShadow =
+      '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+  }
+
+  // Desktop: right-click selects
+  pad.addEventListener('contextmenu', selectPadForAssign);
+
+  // iPhone/iPad: long-press selects, quick tap plays, and suppresses iOS callout menu
+  let lpTimer = null;
+  let longPressFired = false;
+
+  pad.addEventListener(
+    'touchstart',
+    (e) => {
+      // Must be non-passive to prevent the iOS callout menu.
+      e.preventDefault();
+      longPressFired = false;
+
+      lpTimer = setTimeout(() => {
+        longPressFired = true;
+        selectPadForAssign(e);
+      }, 650);
+    },
+    { passive: false }
+  );
+
+  pad.addEventListener(
+    'touchend',
+    (e) => {
+      e.preventDefault();
+      if (lpTimer) {
+        clearTimeout(lpTimer);
+        lpTimer = null;
+      }
+      // If it wasn't a long-press, treat as a tap to play.
+      if (!longPressFired) playPad();
+    },
+    { passive: false }
+  );
+
+  pad.addEventListener('touchcancel', () => {
+    if (lpTimer) {
+      clearTimeout(lpTimer);
+      lpTimer = null;
+    }
+    longPressFired = false;
+  });
+
+  grid.appendChild(pad);
+  padButtons.push(pad);
+}
 
       // Right-click selects pad; if assigned, confirm removal first
       pad.addEventListener('contextmenu', async (e) => {
@@ -366,7 +455,7 @@
     // -----------------------------
     document.getElementById('loadBtn').addEventListener('click', () => {
       if (selectedPad === null) {
-        alert('Right-click a pad to select it first');
+        alert('Select a pad first (right-click on Mac/PC, or press-and-hold on iPhone/iPad).');
         return;
       }
 
@@ -412,7 +501,7 @@
 
     document.getElementById('recordBtn').addEventListener('click', async () => {
       if (selectedPad === null) {
-        alert('Right-click a pad to select it first');
+        alert('Select a pad first (right-click on Mac/PC, or press-and-hold on iPhone/iPad).');
         return;
       }
 
