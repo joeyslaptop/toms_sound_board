@@ -252,7 +252,8 @@
     const sounds = new Array(PAD_COUNT).fill(null);
     const padButtons = [];
     let selectedPad = null;
-
+    let selectMode = null; // null | 'load' | 'record'
+    
     function clearSelectionVisual() {
       padButtons.forEach((b) => (b.style.boxShadow = ''));
       selectedPad = null;
@@ -340,90 +341,102 @@
       }
     }
 
-    // -----------------------------
-    // Build pads (desktop + iOS friendly)
-    // -----------------------------
-    for (let i = 0; i < PAD_COUNT; i++) {
-      const pad = document.createElement('button');
-      pad.className = `pad r${Math.floor(i / 6) + 1}`;
-      pad.setAttribute('aria-label', `Pad ${i + 1}`);
-      pad.innerHTML = '<span class="pad-label"></span>';
+   // -----------------------------
+// Build pads (desktop + iOS friendly)
+// -----------------------------
+for (let i = 0; i < PAD_COUNT; i++) {
+  const pad = document.createElement('button');
+  pad.className = `pad r${Math.floor(i / 6) + 1}`;
+  pad.setAttribute('aria-label', `Pad ${i + 1}`);
+  pad.innerHTML = '<span class="pad-label"></span>';
 
-      function playPad() {
-        if (sounds[i]) {
-          sounds[i].currentTime = 0;
-          sounds[i].play();
-        }
-      }
-
-      // Desktop click plays (mobile "click" can be flaky once we suppress callouts, so we handle touchend too)
-      pad.addEventListener('click', playPad);
-
-      async function selectPadForAssign(e) {
-        if (e) e.preventDefault();
-
-        if (sounds[i]) {
-          const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
-          if (!ok) return;
-
-          sounds[i] = null;
-          await idbDelete(`pad-${i}`);
-          padButtons[i].style.outline = '';
-          setPadLabel(i, '');
-        }
-
-        selectedPad = i;
-        padButtons.forEach((b) => (b.style.boxShadow = ''));
-        pad.style.boxShadow = '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
-      }
-
-      // Desktop: right-click selects
-      pad.addEventListener('contextmenu', selectPadForAssign);
-
-      // Mobile (iOS/Android touch): long-press selects; tap plays; suppress callout menu
-      let lpTimer = null;
-      let longPressFired = false;
-
-      pad.addEventListener('touchstart', (e) => {
-        // non-passive is required to suppress iOS callout menu
-        e.preventDefault();
-        longPressFired = false;
-
-        lpTimer = setTimeout(() => {
-          longPressFired = true;
-          selectPadForAssign(e);
-        }, 650);
-      }, { passive: false });
-
-      pad.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        if (lpTimer) {
-          clearTimeout(lpTimer);
-          lpTimer = null;
-        }
-        if (!longPressFired) playPad();
-      }, { passive: false });
-
-      pad.addEventListener('touchcancel', () => {
-        if (lpTimer) {
-          clearTimeout(lpTimer);
-          lpTimer = null;
-        }
-        longPressFired = false;
-      });
-
-      grid.appendChild(pad);
-      padButtons.push(pad);
+  function playPad() {
+    if (sounds[i]) {
+      sounds[i].currentTime = 0;
+      sounds[i].play();
     }
+  }
+
+  async function selectPadForAssign(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    if (sounds[i]) {
+      const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
+      if (!ok) return;
+
+      sounds[i] = null;
+      await idbDelete(`pad-${i}`);
+      padButtons[i].style.outline = '';
+      setPadLabel(i, '');
+    }
+
+    selectedPad = i;
+    padButtons.forEach((b) => (b.style.boxShadow = ''));
+    pad.style.boxShadow =
+      '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+
+    // Primary iPad workflow: if Load/Record requested a selection, continue automatically
+    if (selectMode) {
+      const mode = selectMode;
+      selectMode = null;
+      if (mode === 'load') document.getElementById('loadBtn').click();
+      if (mode === 'record') document.getElementById('recordBtn').click();
+    }
+  }
+
+  // CLICK: plays normally, but if we're in selectMode, tap selects instead (iPad Air 2 friendly)
+  pad.addEventListener('click', async (e) => {
+    if (selectMode) {
+      await selectPadForAssign(e);
+      return;
+    }
+    playPad();
+  });
+
+  // Desktop: right-click selects
+  pad.addEventListener('contextmenu', selectPadForAssign);
+
+  // Optional: double-tap selects (works on many newer devices)
+  // Note: we do NOT preventDefault here; older iPads can be sensitive.
+  let lastTapTime = 0;
+  pad.addEventListener('touchend', async () => {
+    const now = Date.now();
+    const dt = now - lastTapTime;
+    lastTapTime = now;
+
+    if (dt > 0 && dt < 320) {
+      await selectPadForAssign();
+    }
+  }, { passive: true });
+
+  // Optional: long-press selects (newer devices)
+  // We keep this gentle: no preventDefault to avoid breaking old iPads.
+  let lpTimer = null;
+  pad.addEventListener('touchstart', () => {
+    lpTimer = setTimeout(() => { selectPadForAssign(); }, 650);
+  }, { passive: true });
+
+  pad.addEventListener('touchend', () => {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+  }, { passive: true });
+
+  pad.addEventListener('touchcancel', () => {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+  }, { passive: true });
+
+  grid.appendChild(pad);
+  padButtons.push(pad);
+}
 
     // -----------------------------
     // Load Sound
     // -----------------------------
     document.getElementById('loadBtn').addEventListener('click', () => {
-      if (selectedPad === null) {
-        alert('Select a pad first (right-click on Mac/PC, or press-and-hold on iPhone/iPad).');
-        return;
-      }
+    if (selectedPad === null) {
+      selectMode = 'load';
+      alert('Tap a pad to select it (then the Load Sound picker will open).');
+      return;
+    }
 
       const input = document.createElement('input');
       input.type = 'file';
@@ -466,10 +479,11 @@
     let recordStopTimer = null;
 
     document.getElementById('recordBtn').addEventListener('click', async () => {
-      if (selectedPad === null) {
-        alert('Select a pad first (right-click on Mac/PC, or press-and-hold on iPhone/iPad).');
-        return;
-      }
+    if (selectedPad === null) {
+      selectMode = 'record';
+      alert('Tap a pad to select it (then recording will start).');
+      return;
+    }
 
       const recordBtn = document.getElementById('recordBtn');
 
