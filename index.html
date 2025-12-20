@@ -340,154 +340,112 @@
       }
     }
 
-// -----------------------------
-// Build pads (desktop + iOS friendly)
-// -----------------------------
-for (let i = 0; i < PAD_COUNT; i++) {
-  const pad = document.createElement('button');
-  pad.className = `pad r${Math.floor(i / 6) + 1}`;
-  pad.setAttribute('aria-label', `Pad ${i + 1}`);
-  pad.innerHTML = '<span class="pad-label"></span>';
+    // -----------------------------
+    // Build pads (desktop + iOS friendly)
+    // -----------------------------
+    for (let i = 0; i < PAD_COUNT; i++) {
+      const pad = document.createElement('button');
+      pad.className = `pad r${Math.floor(i / 6) + 1}`;
+      pad.setAttribute('aria-label', `Pad ${i + 1}`);
+      pad.innerHTML = '<span class="pad-label"></span>';
 
-  function playPad() {
-    if (sounds[i]) {
-      sounds[i].currentTime = 0;
-      sounds[i].play();
-    }
-  }
+      function playPad() {
+        if (sounds[i]) {
+          sounds[i].currentTime = 0;
+          sounds[i].play();
+        }
+      }
 
-  async function selectPadAndContinue(e) {
-    if (e && e.cancelable) e.preventDefault();
+      // Desktop click plays (mobile "click" can be flaky once we suppress callouts, so we handle touchend too)
+      pad.addEventListener('click', playPad);
 
-    // If assigned, confirm removal first
-    if (sounds[i]) {
-      const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
-      if (!ok) return;
+      async function selectPadForAssign(e) {
+        if (e) e.preventDefault();
 
-      sounds[i] = null;
-      await idbDelete(`pad-${i}`);
-      padButtons[i].style.outline = '';
-      setPadLabel(i, '');
-    }
+        if (sounds[i]) {
+          const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
+          if (!ok) return;
 
-    selectedPad = i;
-    padButtons.forEach((b) => (b.style.boxShadow = ''));
-    pad.style.boxShadow =
-      '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+          sounds[i] = null;
+          await idbDelete(`pad-${i}`);
+          padButtons[i].style.outline = '';
+          setPadLabel(i, '');
+        }
 
-    // If we entered select mode from Load/Record, continue that action now
-    if (selectMode) {
-      const action = selectMode;
-      selectMode = null;
+        selectedPad = i;
+        padButtons.forEach((b) => (b.style.boxShadow = ''));
+        pad.style.boxShadow = '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+      }
 
-      if (action === 'load') document.getElementById('loadBtn').click();
-      if (action === 'record') document.getElementById('recordBtn').click();
-    }
-  }
+      // Desktop: right-click selects
+      pad.addEventListener('contextmenu', selectPadForAssign);
 
-  async function selectPadForAssign(e) {
-    await selectPadAndContinue(e);
-  }
+      // Mobile (iOS/Android touch): long-press selects; tap plays; suppress callout menu
+      let lpTimer = null;
+      let longPressFired = false;
 
-  // Click: play normally, but if selectMode is active, select instead (old iPad fallback)
-  pad.addEventListener('click', async (e) => {
-    if (selectMode) {
-      await selectPadAndContinue(e);
-      return;
-    }
-    playPad();
-  });
+      pad.addEventListener('touchstart', (e) => {
+        // non-passive is required to suppress iOS callout menu
+        e.preventDefault();
+        longPressFired = false;
 
-  // Double-tap to select (mobile/iPad backup)
-  let lastTapTime = 0;
-  let lpTimer = null;
-  let longPressFired = false;
+        lpTimer = setTimeout(() => {
+          longPressFired = true;
+          selectPadForAssign(e);
+        }, 650);
+      }, { passive: false });
 
-  pad.addEventListener('touchend', async (e) => {
-    // This touchend fires for both tap and the end of a long-press;
-    // if we already long-pressed, don't treat it as a double-tap.
-    if (longPressFired) return;
+      pad.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        if (lpTimer) {
+          clearTimeout(lpTimer);
+          lpTimer = null;
+        }
+        if (!longPressFired) playPad();
+      }, { passive: false });
 
-    const now = Date.now();
-    const dt = now - lastTapTime;
+      pad.addEventListener('touchcancel', () => {
+        if (lpTimer) {
+          clearTimeout(lpTimer);
+          lpTimer = null;
+        }
+        longPressFired = false;
+      });
 
-    // If the second tap happens quickly enough, count it as a double-tap
-    if (dt > 0 && dt < 350) {
-      if (e.cancelable) e.preventDefault();
-      await selectPadAndContinue(e);
-      lastTapTime = 0;
-      return;
+      grid.appendChild(pad);
+      padButtons.push(pad);
     }
 
-    lastTapTime = now;
-  }, { passive: false });
+    // -----------------------------
+    // Load Sound
+    // -----------------------------
+    document.getElementById('loadBtn').addEventListener('click', () => {
+      if (selectedPad === null) {
+        alert('Select a pad first (right-click on Mac/PC, or press-and-hold on iPhone/iPad).');
+        return;
+      }
 
-  // Desktop: right-click selects
-  pad.addEventListener('contextmenu', (e) => selectPadForAssign(e));
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'audio/*';
+      input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
 
-  // Mobile long-press selects; suppress iOS callout menu
-  pad.addEventListener('touchstart', (e) => {
-    if (e.cancelable) e.preventDefault();
-    longPressFired = false;
+        try {
+          await idbSet(`pad-${selectedPad}`, file);
+          const url = URL.createObjectURL(file);
+          sounds[selectedPad] = new Audio(url);
+          padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
+          setPadLabel(selectedPad, file.name);
+          clearSelectionVisual();
+        } catch (err) {
+          alert(`Sound load failed: ${err.message || err}`);
+        }
+      };
+      input.click();
+    });
 
-    lpTimer = setTimeout(async () => {
-      longPressFired = true;
-      await selectPadAndContinue(e);
-    }, 650);
-  }, { passive: false });
-
-  pad.addEventListener('touchend', (e) => {
-    if (e.cancelable) e.preventDefault();
-    if (lpTimer) {
-      clearTimeout(lpTimer);
-      lpTimer = null;
-    }
-    // If it wasn't a long-press, let click handle play (or selectMode selection)
-    // (No direct play here to avoid double-trigger with click.)
-  }, { passive: false });
-
-  pad.addEventListener('touchcancel', () => {
-    if (lpTimer) {
-      clearTimeout(lpTimer);
-      lpTimer = null;
-    }
-    longPressFired = false;
-  });
-
-  grid.appendChild(pad);
-  padButtons.push(pad);
-}
-// -----------------------------
-// Load Sound
-// -----------------------------
-document.getElementById('loadBtn').addEventListener('click', () => {
-  if (selectedPad === null) {
-    // Fallback for older iPads: enter "select a pad" mode, then continue automatically
-    selectMode = 'load';
-    alert('Tap a pad to select it (then the Load Sound picker will open).');
-    return;
-  }
-
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'audio/*';
-  input.onchange = async () => {
-    const file = input.files[0];
-    if (!file) return;
-
-    try {
-      await idbSet(`pad-${selectedPad}`, file);
-      const url = URL.createObjectURL(file);
-      sounds[selectedPad] = new Audio(url);
-      padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
-      setPadLabel(selectedPad, file.name);
-      clearSelectionVisual();
-    } catch (err) {
-      alert(`Sound load failed: ${err.message || err}`);
-    }
-  };
-  input.click();
-});
     // -----------------------------
     // Random Roll
     // -----------------------------
@@ -499,137 +457,116 @@ document.getElementById('loadBtn').addEventListener('click', () => {
       document.getElementById('display').textContent = roll.toString().padStart(2, '0');
     });
 
-// -----------------------------
-// Record Sound (MediaRecorder)
-// -----------------------------
-let mediaRecorder = null;
-let recordChunks = [];
-let isRecording = false;
-let recordStopTimer = null;
+    // -----------------------------
+    // Record Sound (MediaRecorder)
+    // -----------------------------
+    let mediaRecorder = null;
+    let recordChunks = [];
+    let isRecording = false;
+    let recordStopTimer = null;
 
-// Keep mic permission for the whole page session (Safari prompts once per page load)
-let micStream = null;
+    document.getElementById('recordBtn').addEventListener('click', async () => {
+      if (selectedPad === null) {
+        alert('Select a pad first (right-click on Mac/PC, or press-and-hold on iPhone/iPad).');
+        return;
+      }
 
-document.getElementById('recordBtn').addEventListener('click', async () => {
-  if (selectedPad === null) {
-    // Fallback for older iPads: enter "select a pad" mode, then continue automatically
-    selectMode = 'record';
-    alert('Tap a pad to select it (then recording will start).');
-    return;
-  }
+      const recordBtn = document.getElementById('recordBtn');
 
-  const recordBtn = document.getElementById('recordBtn');
-
-  try {
-    // If currently recording, stop and save
-    if (isRecording && mediaRecorder) {
-      mediaRecorder.stop();
-      return;
-    }
-
-    // Reuse the same mic stream so Safari doesn't prompt every time
-    if (!micStream) {
-      micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-    }
-    const stream = micStream;
-
-    const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/mp4'
-    ];
-    const mimeType = candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
-
-    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    recordChunks = [];
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) recordChunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = async () => {
       try {
-        // IMPORTANT: do NOT stop the mic stream here (keeps permission for session)
+        // If currently recording, stop and save
+        if (isRecording && mediaRecorder) {
+          mediaRecorder.stop();
+          return;
+        }
 
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        const candidates = [
+          'audio/webm;codecs=opus',
+          'audio/webm',
+          'audio/ogg;codecs=opus',
+          'audio/mp4'
+        ];
+        const mimeType = candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+
+        mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        recordChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) recordChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+          try {
+            stream.getTracks().forEach(t => t.stop());
+
+            if (recordStopTimer) {
+              clearTimeout(recordStopTimer);
+              recordStopTimer = null;
+            }
+
+            const blob = new Blob(recordChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+
+            const defaultName = `pad_${selectedPad + 1}`;
+            const userName = (prompt('Name this recording (up to 10 characters):', defaultName) || defaultName)
+              .trim()
+              .slice(0, 10) || defaultName;
+
+            const ext =
+              (blob.type.includes('ogg') && 'ogg') ||
+              (blob.type.includes('mp4') && 'm4a') ||
+              'webm';
+
+            const filename = `${userName}.${ext}`;
+            const file = new File([blob], filename, { type: blob.type });
+
+            await idbSet(`pad-${selectedPad}`, file);
+
+            const url = URL.createObjectURL(file);
+            sounds[selectedPad] = new Audio(url);
+
+            padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
+            setPadLabel(selectedPad, file.name);
+
+            clearSelectionVisual();
+          } catch (err) {
+            alert(`Recording save failed: ${err.message || err}`);
+          } finally {
+            isRecording = false;
+            recordBtn.textContent = 'Record Sound';
+            recordBtn.style.background = recordBtn.dataset.prevBackground || '';
+            recordBtn.style.color = '';
+            recordBtn.style.filter = '';
+          }
+        };
+
+        isRecording = true;
+        recordBtn.textContent = 'Stop Recording';
+        recordBtn.dataset.prevBackground = recordBtn.style.background || '';
+        recordBtn.style.background = 'linear-gradient(145deg, #b22222, #7a0f0f)';
+        recordBtn.style.color = '#fff';
+
+        recordStopTimer = setTimeout(() => {
+          if (isRecording && mediaRecorder?.state === 'recording') {
+            mediaRecorder.stop();
+          }
+        }, 15000);
+
+        mediaRecorder.start();
+      } catch (err) {
         if (recordStopTimer) {
           clearTimeout(recordStopTimer);
           recordStopTimer = null;
         }
-
-        const blob = new Blob(recordChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-
-        const defaultName = `pad_${selectedPad + 1}`;
-        const userName = (prompt('Name this recording (up to 10 characters):', defaultName) || defaultName)
-          .trim()
-          .slice(0, 10) || defaultName;
-
-        const ext =
-          (blob.type.includes('ogg') && 'ogg') ||
-          (blob.type.includes('mp4') && 'm4a') ||
-          'webm';
-
-        const filename = `${userName}.${ext}`;
-        const file = new File([blob], filename, { type: blob.type });
-
-        await idbSet(`pad-${selectedPad}`, file);
-
-        const url = URL.createObjectURL(file);
-        sounds[selectedPad] = new Audio(url);
-
-        padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
-        setPadLabel(selectedPad, file.name);
-
-        clearSelectionVisual();
-      } catch (err) {
-        alert(`Recording save failed: ${err.message || err}`);
-      } finally {
         isRecording = false;
-        recordBtn.textContent = 'Record Sound';
-        recordBtn.style.background = recordBtn.dataset.prevBackground || '';
-        recordBtn.style.color = '';
-        recordBtn.style.filter = '';
+        alert(
+          err?.name === 'NotAllowedError'
+            ? 'Microphone permission was denied.'
+            : `Could not start recording: ${err.message || err}`
+        );
       }
-    };
-
-    isRecording = true;
-    recordBtn.textContent = 'Stop Recording';
-    recordBtn.dataset.prevBackground = recordBtn.style.background || '';
-    recordBtn.style.background = 'linear-gradient(145deg, #b22222, #7a0f0f)';
-    recordBtn.style.color = '#fff';
-
-    recordStopTimer = setTimeout(() => {
-      if (isRecording && mediaRecorder?.state === 'recording') {
-        mediaRecorder.stop();
-      }
-    }, 15000);
-
-    mediaRecorder.start();
-  } catch (err) {
-    if (recordStopTimer) {
-      clearTimeout(recordStopTimer);
-      recordStopTimer = null;
-    }
-    isRecording = false;
-    alert(
-      err?.name === 'NotAllowedError'
-        ? 'Microphone permission was denied.'
-        : `Could not start recording: ${err.message || err}`
-    );
-  }
-});
-
-// Release mic if the page is closed/navigated away (clean-up)
-window.addEventListener('pagehide', () => {
-  try { micStream?.getTracks()?.forEach(t => t.stop()); } catch (_) {}
-  micStream = null;
-});
+    });
 
     // Info
     document.getElementById('infoBtn').addEventListener('click', () => {
