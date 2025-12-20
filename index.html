@@ -245,362 +245,428 @@
     </div>
   </div>
 
-  <script>
-    const PAD_COUNT = 30; // 6 columns x 5 rows
+<script>
+  const PAD_COUNT = 30; // 6 columns x 5 rows
 
-    const grid = document.querySelector('.grid');
-    const sounds = new Array(PAD_COUNT).fill(null);
-    const padButtons = [];
-    let selectedPad = null;
-    let selectMode = null; // null | 'load' | 'record'
-    
-    function clearSelectionVisual() {
-      padButtons.forEach((b) => (b.style.boxShadow = ''));
-      selectedPad = null;
+  const grid = document.querySelector('.grid');
+  const sounds = new Array(PAD_COUNT).fill(null);
+  const padButtons = [];
+  let selectedPad = null;
+
+  // Primary iPad workflow:
+  // tap Load/Record -> tap pad to select it
+  let selectMode = null; // null | 'load' | 'record'
+
+  function clearSelectionVisual() {
+    padButtons.forEach((b) => (b.style.boxShadow = ''));
+    selectedPad = null;
+  }
+
+  function shortSoundName(filename) {
+    if (!filename) return '';
+    const base = filename.replace(/\.[^/.]+$/, '');
+    return base.slice(0, 10);
+  }
+
+  function setPadLabel(padIndex, filename) {
+    const el = padButtons[padIndex]?.querySelector('.pad-label');
+    if (!el) return;
+    el.textContent = shortSoundName(filename);
+  }
+
+  // -----------------------------
+  // IndexedDB helpers (Option A)
+  // -----------------------------
+  const DB_NAME = 'dd-soundboard';
+  const DB_VERSION = 1;
+  const STORE = 'pads';
+
+  function openDb() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbSet(key, blob) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put(blob, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function idbGet(key) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbDelete(key) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function idbClear() {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function loadIndexedDbSounds() {
+    for (let i = 0; i < PAD_COUNT; i++) {
+      const blob = await idbGet(`pad-${i}`);
+      if (!blob) continue;
+
+      const url = URL.createObjectURL(blob);
+      sounds[i] = new Audio(url);
+      padButtons[i].style.outline = '2px solid rgba(255,255,255,0.18)';
+      setPadLabel(i, blob?.name || '');
+    }
+  }
+
+  // -----------------------------
+  // Build pads (NO per-pad listeners)
+  // -----------------------------
+  for (let i = 0; i < PAD_COUNT; i++) {
+    const pad = document.createElement('button');
+    pad.type = 'button';
+    pad.className = `pad r${Math.floor(i / 6) + 1}`;
+    pad.setAttribute('aria-label', `Pad ${i + 1}`);
+    pad.dataset.idx = String(i);
+    pad.innerHTML = '<span class="pad-label"></span>';
+
+    grid.appendChild(pad);
+    padButtons.push(pad);
+  }
+
+  // -----------------------------
+  // Shared pad actions
+  // -----------------------------
+  function playPadByIndex(i) {
+    if (sounds[i]) {
+      sounds[i].currentTime = 0;
+      sounds[i].play();
+    }
+  }
+
+  async function selectPadByIndex(i) {
+    // If assigned, confirm removal first
+    if (sounds[i]) {
+      const ok = confirm(
+        'By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?'
+      );
+      if (!ok) return false;
+
+      sounds[i] = null;
+      await idbDelete(`pad-${i}`);
+      padButtons[i].style.outline = '';
+      setPadLabel(i, '');
     }
 
-    function shortSoundName(filename) {
-      if (!filename) return '';
-      const base = filename.replace(/\.[^/.]+$/, '');
-      return base.slice(0, 10);
+    selectedPad = i;
+    padButtons.forEach((b) => (b.style.boxShadow = ''));
+    padButtons[i].style.boxShadow =
+      '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+
+    // Primary workflow: continue pending action
+    if (selectMode) {
+      const mode = selectMode;
+      selectMode = null;
+      if (mode === 'load') document.getElementById('loadBtn').click();
+      if (mode === 'record') document.getElementById('recordBtn').click();
     }
 
-    function setPadLabel(padIndex, filename) {
-      const el = padButtons[padIndex]?.querySelector('.pad-label');
-      if (!el) return;
-      el.textContent = shortSoundName(filename);
+    return true;
+  }
+
+  function getPadIndexFromEvent(e) {
+    const pad = e.target.closest('.pad');
+    if (!pad) return null;
+    const i = parseInt(pad.dataset.idx, 10);
+    return Number.isNaN(i) ? null : i;
+  }
+
+  // -----------------------------
+  // Right-click (desktop)
+  // -----------------------------
+  grid.addEventListener('contextmenu', async (e) => {
+    const i = getPadIndexFromEvent(e);
+    if (i === null) return;
+    e.preventDefault();
+    await selectPadByIndex(i);
+  });
+
+  // -----------------------------
+  // Tap / click handling (works on old iPads)
+  // -----------------------------
+  // We treat "touchend" as the authoritative tap on iOS.
+  // If the browser doesn't deliver touch events (desktop), click still works.
+  let lastTapTime = 0;
+  let lastTapIndex = -1;
+
+  async function handlePadTap(e, isTouch) {
+    const i = getPadIndexFromEvent(e);
+    if (i === null) return;
+
+    // Prevent iOS text-selection/callout quirks
+    if (e.cancelable) e.preventDefault();
+
+    // Primary workflow: if waiting for a pad, select it
+    if (selectMode) {
+      await selectPadByIndex(i);
+      return;
     }
 
-    // -----------------------------
-    // IndexedDB helpers (Option A)
-    // -----------------------------
-    const DB_NAME = 'dd-soundboard';
-    const DB_VERSION = 1;
-    const STORE = 'pads';
+    // Optional: double-tap selects (newer devices; harmless if it doesn't fire)
+    if (isTouch) {
+      const now = Date.now();
+      const dt = now - lastTapTime;
+      const isDouble = (i === lastTapIndex) && dt > 0 && dt < 320;
+      lastTapTime = now;
+      lastTapIndex = i;
 
-    function openDb() {
-      return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = () => {
-          const db = req.result;
-          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
-
-    async function idbSet(key, blob) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).put(blob, key);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
-
-    async function idbGet(key) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const req = tx.objectStore(STORE).get(key);
-        req.onsuccess = () => resolve(req.result ?? null);
-        req.onerror = () => reject(req.error);
-      });
-    }
-
-    async function idbDelete(key) {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).delete(key);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
-
-    async function idbClear() {
-      const db = await openDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).clear();
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
-
-    async function loadIndexedDbSounds() {
-      for (let i = 0; i < PAD_COUNT; i++) {
-        const blob = await idbGet(`pad-${i}`);
-        if (!blob) continue;
-        const url = URL.createObjectURL(blob);
-        sounds[i] = new Audio(url);
-        padButtons[i].style.outline = '2px solid rgba(255,255,255,0.18)';
-        setPadLabel(i, blob?.name || '');
+      if (isDouble) {
+        await selectPadByIndex(i);
+        return;
       }
     }
 
-// -----------------------------
-// Build pads (delegated events for iPad Air 2 reliability)
-// -----------------------------
-for (let i = 0; i < PAD_COUNT; i++) {
-  const pad = document.createElement('button');
-  pad.type = 'button';
-  pad.className = `pad r${Math.floor(i / 6) + 1}`;
-  pad.setAttribute('aria-label', `Pad ${i + 1}`);
-  pad.dataset.idx = String(i);
-  pad.innerHTML = '<span class="pad-label"></span>';
-
-  grid.appendChild(pad);
-  padButtons.push(pad);
-}
-let selectMode = null; // null | 'load' | 'record' (if you haven't added it yet)
-
-async function selectPadByIndex(i) {
-  if (sounds[i]) {
-    const ok = confirm('By continuing, the cached sound will be removed so you can reassign it to a new sound.  Continue?');
-    if (!ok) return false;
-
-    sounds[i] = null;
-    await idbDelete(`pad-${i}`);
-    padButtons[i].style.outline = '';
-    setPadLabel(i, '');
+    // Normal tap/click plays
+    playPadByIndex(i);
   }
 
-  selectedPad = i;
-  padButtons.forEach((b) => (b.style.boxShadow = ''));
-  padButtons[i].style.boxShadow =
-    '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
+  grid.addEventListener('touchend', (e) => handlePadTap(e, true), { passive: false });
+  grid.addEventListener('click', (e) => handlePadTap(e, false), true);
 
-  // Continue action if we were waiting for a pad tap (primary iPad workflow)
-  if (selectMode) {
-    const mode = selectMode;
-    selectMode = null;
-    if (mode === 'load') document.getElementById('loadBtn').click();
-    if (mode === 'record') document.getElementById('recordBtn').click();
-  }
-  return true;
-}
+  // Optional: long-press selects (newer devices)
+  // Kept lightweight; if the device doesn't support it well, primary workflow still works.
+  let lpTimer = null;
+  grid.addEventListener('touchstart', (e) => {
+    const i = getPadIndexFromEvent(e);
+    if (i === null) return;
 
-function playPadByIndex(i) {
-  if (sounds[i]) {
-    sounds[i].currentTime = 0;
-    sounds[i].play();
-  }
-}
+    lpTimer = setTimeout(() => {
+      // don't block normal taps; this is optional
+      selectPadByIndex(i);
+    }, 650);
+  }, { passive: true });
 
-// Delegated handler: works better on older iPads than per-button listeners
-async function handlePadActivate(e) {
-  const pad = e.target.closest('.pad');
-  if (!pad) return;
+  grid.addEventListener('touchcancel', () => {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+  }, { passive: true });
 
-  // iPad Safari sometimes needs this to stop weird selection behavior
-  if (e.cancelable) e.preventDefault();
+  grid.addEventListener('touchend', () => {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+  }, { passive: true });
 
-  const i = parseInt(pad.dataset.idx, 10);
-  if (Number.isNaN(i)) return;
+  // -----------------------------
+  // Load Sound
+  // -----------------------------
+  document.getElementById('loadBtn').addEventListener('click', () => {
+    if (selectedPad === null) {
+      selectMode = 'load';
+      alert('Tap a pad to select it (then the Load Sound picker will open).');
+      return;
+    }
 
-  if (selectMode) {
-    await selectPadByIndex(i);
-    return;
-  }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*';
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
 
-  playPadByIndex(i);
-}
+      try {
+        await idbSet(`pad-${selectedPad}`, file);
+        const url = URL.createObjectURL(file);
+        sounds[selectedPad] = new Audio(url);
+        padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
+        setPadLabel(selectedPad, file.name);
+        clearSelectionVisual();
+      } catch (err) {
+        alert(`Sound load failed: ${err.message || err}`);
+      }
+    };
+    input.click();
+  });
 
-// Use multiple event types; whichever the iPad delivers will work
-grid.addEventListener('click', handlePadActivate, true);
-grid.addEventListener('touchend', handlePadActivate, { capture: true, passive: false });
-grid.addEventListener('pointerup', handlePadActivate, { capture: true, passive: false });
-    
-    // -----------------------------
-    // Load Sound
-    // -----------------------------
-    document.getElementById('loadBtn').addEventListener('click', () => {
+  // -----------------------------
+  // Random Roll
+  // -----------------------------
+  document.getElementById('rollBtn').addEventListener('click', () => {
+    const min = parseInt(document.getElementById('minVal').value);
+    const max = parseInt(document.getElementById('maxVal').value);
+    if (isNaN(min) || isNaN(max) || min > max) return;
+    const roll = Math.floor(Math.random() * (max - min + 1)) + min;
+    document.getElementById('display').textContent = roll.toString().padStart(2, '0');
+  });
+
+  // -----------------------------
+  // Record Sound (MediaRecorder) - original behavior (prompts as Safari decides)
+  // -----------------------------
+  let mediaRecorder = null;
+  let recordChunks = [];
+  let isRecording = false;
+  let recordStopTimer = null;
+
+  document.getElementById('recordBtn').addEventListener('click', async () => {
     if (selectedPad === null) {
       selectMode = 'record';
       alert('Tap a pad to select it (then recording will start).');
       return;
     }
 
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'audio/*';
-      input.onchange = async () => {
-        const file = input.files[0];
-        if (!file) return;
+    const recordBtn = document.getElementById('recordBtn');
 
+    try {
+      // If currently recording, stop and save
+      if (isRecording && mediaRecorder) {
+        mediaRecorder.stop();
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4'
+      ];
+      const mimeType = candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+
+      mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recordChunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
         try {
+          stream.getTracks().forEach(t => t.stop());
+
+          if (recordStopTimer) {
+            clearTimeout(recordStopTimer);
+            recordStopTimer = null;
+          }
+
+          const blob = new Blob(recordChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+
+          const defaultName = `pad_${selectedPad + 1}`;
+          const userName = (prompt('Name this recording (up to 10 characters):', defaultName) || defaultName)
+            .trim()
+            .slice(0, 10) || defaultName;
+
+          const ext =
+            (blob.type.includes('ogg') && 'ogg') ||
+            (blob.type.includes('mp4') && 'm4a') ||
+            'webm';
+
+          const filename = `${userName}.${ext}`;
+          const file = new File([blob], filename, { type: blob.type });
+
           await idbSet(`pad-${selectedPad}`, file);
+
           const url = URL.createObjectURL(file);
           sounds[selectedPad] = new Audio(url);
+
           padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
           setPadLabel(selectedPad, file.name);
+
           clearSelectionVisual();
         } catch (err) {
-          alert(`Sound load failed: ${err.message || err}`);
+          alert(`Recording save failed: ${err.message || err}`);
+        } finally {
+          isRecording = false;
+          recordBtn.textContent = 'Record Sound';
+          recordBtn.style.background = recordBtn.dataset.prevBackground || '';
+          recordBtn.style.color = '';
+          recordBtn.style.filter = '';
         }
       };
-      input.click();
-    });
 
-    // -----------------------------
-    // Random Roll
-    // -----------------------------
-    document.getElementById('rollBtn').addEventListener('click', () => {
-      const min = parseInt(document.getElementById('minVal').value);
-      const max = parseInt(document.getElementById('maxVal').value);
-      if (isNaN(min) || isNaN(max) || min > max) return;
-      const roll = Math.floor(Math.random() * (max - min + 1)) + min;
-      document.getElementById('display').textContent = roll.toString().padStart(2, '0');
-    });
+      isRecording = true;
+      recordBtn.textContent = 'Stop Recording';
+      recordBtn.dataset.prevBackground = recordBtn.style.background || '';
+      recordBtn.style.background = 'linear-gradient(145deg, #b22222, #7a0f0f)';
+      recordBtn.style.color = '#fff';
 
-    // -----------------------------
-    // Record Sound (MediaRecorder)
-    // -----------------------------
-    let mediaRecorder = null;
-    let recordChunks = [];
-    let isRecording = false;
-    let recordStopTimer = null;
-
-    document.getElementById('recordBtn').addEventListener('click', async () => {
-    if (selectedPad === null) {
-      selectMode = 'record';
-      alert('Tap a pad to select it (then recording will start).');
-      return;
-    }
-
-      const recordBtn = document.getElementById('recordBtn');
-
-      try {
-        // If currently recording, stop and save
-        if (isRecording && mediaRecorder) {
+      recordStopTimer = setTimeout(() => {
+        if (isRecording && mediaRecorder?.state === 'recording') {
           mediaRecorder.stop();
-          return;
         }
+      }, 15000);
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-        const candidates = [
-          'audio/webm;codecs=opus',
-          'audio/webm',
-          'audio/ogg;codecs=opus',
-          'audio/mp4'
-        ];
-        const mimeType = candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
-
-        mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-        recordChunks = [];
-
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) recordChunks.push(e.data);
-        };
-
-        mediaRecorder.onstop = async () => {
-          try {
-            stream.getTracks().forEach(t => t.stop());
-
-            if (recordStopTimer) {
-              clearTimeout(recordStopTimer);
-              recordStopTimer = null;
-            }
-
-            const blob = new Blob(recordChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-
-            const defaultName = `pad_${selectedPad + 1}`;
-            const userName = (prompt('Name this recording (up to 10 characters):', defaultName) || defaultName)
-              .trim()
-              .slice(0, 10) || defaultName;
-
-            const ext =
-              (blob.type.includes('ogg') && 'ogg') ||
-              (blob.type.includes('mp4') && 'm4a') ||
-              'webm';
-
-            const filename = `${userName}.${ext}`;
-            const file = new File([blob], filename, { type: blob.type });
-
-            await idbSet(`pad-${selectedPad}`, file);
-
-            const url = URL.createObjectURL(file);
-            sounds[selectedPad] = new Audio(url);
-
-            padButtons[selectedPad].style.outline = '2px solid rgba(255,255,255,0.18)';
-            setPadLabel(selectedPad, file.name);
-
-            clearSelectionVisual();
-          } catch (err) {
-            alert(`Recording save failed: ${err.message || err}`);
-          } finally {
-            isRecording = false;
-            recordBtn.textContent = 'Record Sound';
-            recordBtn.style.background = recordBtn.dataset.prevBackground || '';
-            recordBtn.style.color = '';
-            recordBtn.style.filter = '';
-          }
-        };
-
-        isRecording = true;
-        recordBtn.textContent = 'Stop Recording';
-        recordBtn.dataset.prevBackground = recordBtn.style.background || '';
-        recordBtn.style.background = 'linear-gradient(145deg, #b22222, #7a0f0f)';
-        recordBtn.style.color = '#fff';
-
-        recordStopTimer = setTimeout(() => {
-          if (isRecording && mediaRecorder?.state === 'recording') {
-            mediaRecorder.stop();
-          }
-        }, 15000);
-
-        mediaRecorder.start();
-      } catch (err) {
-        if (recordStopTimer) {
-          clearTimeout(recordStopTimer);
-          recordStopTimer = null;
-        }
-        isRecording = false;
-        alert(
-          err?.name === 'NotAllowedError'
-            ? 'Microphone permission was denied.'
-            : `Could not start recording: ${err.message || err}`
-        );
+      mediaRecorder.start();
+    } catch (err) {
+      if (recordStopTimer) {
+        clearTimeout(recordStopTimer);
+        recordStopTimer = null;
       }
+      isRecording = false;
+      alert(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone permission was denied.'
+          : `Could not start recording: ${err.message || err}`
+      );
+    }
+  });
+
+  // Info
+  document.getElementById('infoBtn').addEventListener('click', () => {
+    window.open('Assets/info.html', '_blank');
+  });
+
+  // Clear Board
+  document.getElementById('clearBoardBtn').addEventListener('click', async () => {
+    const ok = confirm('Continuing this will remove all sounds from cache.  Continue?');
+    if (!ok) return;
+
+    await idbClear();
+    sounds.fill(null);
+    padButtons.forEach((b) => {
+      b.style.outline = '';
+      b.style.boxShadow = '';
+      const lbl = b.querySelector('.pad-label');
+      if (lbl) lbl.textContent = '';
     });
+    selectedPad = null;
+    selectMode = null;
+  });
 
-    // Info
-    document.getElementById('infoBtn').addEventListener('click', () => {
-      window.open('Assets/info.html', '_blank');
-    });
-
-    // Clear Board
-    document.getElementById('clearBoardBtn').addEventListener('click', async () => {
-      const ok = confirm('Continuing this will remove all sounds from cache.  Continue?');
-      if (!ok) return;
-
-      await idbClear();
-      sounds.fill(null);
-      padButtons.forEach((b) => {
-        b.style.outline = '';
-        b.style.boxShadow = '';
-        const lbl = b.querySelector('.pad-label');
-        if (lbl) lbl.textContent = '';
-      });
-      selectedPad = null;
-    });
-
-    // Boot
-    (async () => {
-      try {
-        // Ask browser to keep IndexedDB storage persistent (Safari-friendly)
-        if (navigator.storage && navigator.storage.persist) {
-          try { await navigator.storage.persist(); } catch (_) {}
-        }
-        await loadIndexedDbSounds();
-      } catch (e) {
-        console.warn('Could not load IndexedDB sounds:', e);
+  // Boot
+  (async () => {
+    try {
+      if (navigator.storage && navigator.storage.persist) {
+        try { await navigator.storage.persist(); } catch (_) {}
       }
-    })();
-  </script>
+      await loadIndexedDbSounds();
+    } catch (e) {
+      console.warn('Could not load IndexedDB sounds:', e);
+    }
+  })();
+</script>
 </body>
 </html>
