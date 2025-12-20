@@ -341,8 +341,8 @@
       }
     }
 
-   // -----------------------------
-// Build pads (desktop + iOS friendly)
+// -----------------------------
+// Build pads (desktop + iPad Air 2 safe)
 // -----------------------------
 for (let i = 0; i < PAD_COUNT; i++) {
   const pad = document.createElement('button');
@@ -375,7 +375,7 @@ for (let i = 0; i < PAD_COUNT; i++) {
     pad.style.boxShadow =
       '0 0 0 3px rgba(255,255,255,0.35), 0 4px 8px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -4px 6px rgba(0,0,0,0.5)';
 
-    // Primary iPad workflow: if Load/Record requested a selection, continue automatically
+    // If Load/Record asked for selection, continue automatically
     if (selectMode) {
       const mode = selectMode;
       selectMode = null;
@@ -384,7 +384,7 @@ for (let i = 0; i < PAD_COUNT; i++) {
     }
   }
 
-  // CLICK: plays normally, but if we're in selectMode, tap selects instead (iPad Air 2 friendly)
+  // Desktop click (Mac/PC) – safe
   pad.addEventListener('click', async (e) => {
     if (selectMode) {
       await selectPadForAssign(e);
@@ -393,48 +393,31 @@ for (let i = 0; i < PAD_COUNT; i++) {
     playPad();
   });
 
-  // Desktop: right-click selects
+  // Desktop right-click selects
   pad.addEventListener('contextmenu', selectPadForAssign);
 
-  // Optional: double-tap selects (works on many newer devices)
-  // Note: we do NOT preventDefault here; older iPads can be sensitive.
-  let lastTapTime = 0;
-  pad.addEventListener('touchend', async () => {
-    const now = Date.now();
-    const dt = now - lastTapTime;
-    lastTapTime = now;
+  // iPad/iPhone tap handler (THIS is the key for iPad Air 2)
+  pad.addEventListener('touchend', async (e) => {
+    // Prevent iOS from doing its own gesture stuff and ensure our handler runs
+    e.preventDefault();
 
-    if (dt > 0 && dt < 320) {
-      await selectPadForAssign();
+    if (selectMode) {
+      await selectPadForAssign(e);
+      return;
     }
-  }, { passive: true });
-
-  // Optional: long-press selects (newer devices)
-  // We keep this gentle: no preventDefault to avoid breaking old iPads.
-  let lpTimer = null;
-  pad.addEventListener('touchstart', () => {
-    lpTimer = setTimeout(() => { selectPadForAssign(); }, 650);
-  }, { passive: true });
-
-  pad.addEventListener('touchend', () => {
-    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
-  }, { passive: true });
-
-  pad.addEventListener('touchcancel', () => {
-    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
-  }, { passive: true });
+    playPad();
+  }, { passive: false });
 
   grid.appendChild(pad);
   padButtons.push(pad);
 }
-
     // -----------------------------
     // Load Sound
     // -----------------------------
     document.getElementById('loadBtn').addEventListener('click', () => {
     if (selectedPad === null) {
-      selectMode = 'load';
-      alert('Tap a pad to select it (then the Load Sound picker will open).');
+      selectMode = 'record';
+      alert('Tap a pad to select it (then recording will start).');
       return;
     }
 
