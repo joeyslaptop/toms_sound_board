@@ -561,7 +561,16 @@
 
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'audio/*';
+    // iOS Safari is happiest when extensions are explicit
+    input.accept = [
+      'audio/*',
+      '.mp3',
+      '.m4a', '.aac',
+      '.wav',
+      '.aif', '.aiff',
+      '.caf',
+      '.mp4'
+    ].join(',');
     input.onchange = async () => {
       const file = input.files[0];
       if (!file) return;
