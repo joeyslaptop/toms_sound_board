@@ -321,11 +321,11 @@
   const sounds = new Array(PAD_COUNT).fill(null);
   const padButtons = [];
   let selectedPad = null;
-
   // Primary iPad workflow:
   // tap Load/Record -> tap pad to select it
   let selectMode = null; // null | 'load' | 'record'
-
+  let currentAudio = null;
+  let currentPadIndex = null;
   function clearSelectionVisual() {
     padButtons.forEach((b) => (b.style.boxShadow = ''));
     selectedPad = null;
@@ -432,12 +432,52 @@
   // -----------------------------
   // Shared pad actions
   // -----------------------------
-  function playPadByIndex(i) {
-    if (sounds[i]) {
-      sounds[i].currentTime = 0;
-      sounds[i].play();
-    }
+function stopAudio(a) {
+  if (!a) return;
+  try {
+    a.pause();
+    a.currentTime = 0;
+  } catch (_) {}
+}
+
+function playPadByIndex(i) {
+  const a = sounds[i];
+  if (!a) return;
+
+  // If the same pad is playing, tapping it stops playback
+  if (currentPadIndex === i && currentAudio && !currentAudio.paused) {
+    stopAudio(currentAudio);
+    currentAudio = null;
+    currentPadIndex = null;
+    return;
   }
+
+  // If another sound is playing, stop it first
+  if (currentAudio && currentAudio !== a && !currentAudio.paused) {
+    stopAudio(currentAudio);
+  }
+
+  // Start this pad's sound from the beginning
+  currentAudio = a;
+  currentPadIndex = i;
+  a.currentTime = 0;
+
+  // Clear "currently playing" when it finishes
+  a.onended = () => {
+    if (currentAudio === a) {
+      currentAudio = null;
+      currentPadIndex = null;
+    }
+  };
+
+  a.play().catch(() => {
+    // If playback fails (autoplay policy, etc), clear state
+    if (currentAudio === a) {
+      currentAudio = null;
+      currentPadIndex = null;
+    }
+  });
+}
 
   async function selectPadByIndex(i) {
     // If assigned, confirm removal first
@@ -721,7 +761,9 @@
   document.getElementById('clearBoardBtn').addEventListener('click', async () => {
     const ok = confirm('Continuing this will remove all sounds from cache.  Continue?');
     if (!ok) return;
-
+    stopAudio(currentAudio);
+    currentAudio = null;
+    currentPadIndex = null;
     await idbClear();
     sounds.fill(null);
     padButtons.forEach((b) => {
