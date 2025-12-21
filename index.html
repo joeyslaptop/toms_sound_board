@@ -181,7 +181,15 @@
       filter: brightness(1.35);
       box-shadow: 0 0 18px currentColor, inset 0 0 12px rgba(255,255,255,0.8);
     }
-
+    @keyframes pulseGlow {
+      0%   { box-shadow: 0 0 6px rgba(255,255,255,0.25); }
+      50%  { box-shadow: 0 0 14px rgba(255,255,255,0.55); }
+      100% { box-shadow: 0 0 6px rgba(255,255,255,0.25); }
+    }
+    
+    .pad.playing {
+      animation: pulseGlow 1.4s ease-in-out infinite;
+    }
     .pad-label {
       position: absolute;
       left: 50%;
@@ -326,6 +334,18 @@
   let selectMode = null; // null | 'load' | 'record'
   let currentAudio = null;
   let currentPadIndex = null;
+
+  function setPadPlaying(index) {
+    padButtons.forEach(p => p.classList.remove('playing'));
+    if (index !== null && padButtons[index]) {
+      padButtons[index].classList.add('playing');
+    }
+  }
+  
+  function clearPadPlaying() {
+    padButtons.forEach(p => p.classList.remove('playing'));
+  }
+  
   function clearSelectionVisual() {
     padButtons.forEach((b) => (b.style.boxShadow = ''));
     selectedPad = null;
@@ -447,6 +467,7 @@ function playPadByIndex(i) {
   // If the same pad is playing, tapping it stops playback
   if (currentPadIndex === i && currentAudio && !currentAudio.paused) {
     stopAudio(currentAudio);
+    clearPadPlaying();
     currentAudio = null;
     currentPadIndex = null;
     return;
