@@ -481,11 +481,13 @@ function playPadByIndex(i) {
   // Start this pad's sound from the beginning
   currentAudio = a;
   currentPadIndex = i;
+  setPadPlaying(i);
   a.currentTime = 0;
 
   // Clear "currently playing" when it finishes
   a.onended = () => {
     if (currentAudio === a) {
+      clearPadPlaying();
       currentAudio = null;
       currentPadIndex = null;
     }
@@ -783,6 +785,7 @@ function playPadByIndex(i) {
     const ok = confirm('Continuing this will remove all sounds from cache.  Continue?');
     if (!ok) return;
     stopAudio(currentAudio);
+    clearPadPlaying();
     currentAudio = null;
     currentPadIndex = null;
     await idbClear();
